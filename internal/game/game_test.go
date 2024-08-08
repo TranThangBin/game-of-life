@@ -1,13 +1,9 @@
-package test
+package game
 
-import (
-	"testing"
+import "testing"
 
-	internal "game_of_life/internal/game"
-)
-
-func TestMid(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborMid(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(1, 1, 1)
 	g.SetCell(2, 1, 1)
 	// . . .
@@ -23,8 +19,8 @@ func TestMid(t *testing.T) {
 	}
 }
 
-func TestTopStart(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborTopStart(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 0, 1)
 	g.SetCell(1, 1, 1)
 	g.SetCell(2, 0, 1)
@@ -41,8 +37,8 @@ func TestTopStart(t *testing.T) {
 		t.Fatalf("Expected %d dead cell but get %d", expectedDead, dead)
 	}
 }
-func TestTopEnd(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborTopEnd(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 2, 1)
 	g.SetCell(1, 0, 1)
 	g.SetCell(1, 1, 1)
@@ -61,8 +57,8 @@ func TestTopEnd(t *testing.T) {
 	}
 }
 
-func TestMidStart(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborMidStart(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 0, 1)
 	g.SetCell(1, 0, 1)
 	g.SetCell(2, 0, 1)
@@ -81,8 +77,8 @@ func TestMidStart(t *testing.T) {
 	}
 }
 
-func TestMidEnd(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborMidEnd(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 2, 1)
 	g.SetCell(1, 1, 1)
 	g.SetCell(2, 0, 1)
@@ -99,8 +95,8 @@ func TestMidEnd(t *testing.T) {
 	}
 }
 
-func TestBotStart(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborBotStart(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 2, 1)
 	g.SetCell(1, 0, 1)
 	g.SetCell(1, 1, 1)
@@ -117,8 +113,8 @@ func TestBotStart(t *testing.T) {
 		t.Fatalf("Expected %d dead cell but get %d", expectedDead, dead)
 	}
 }
-func TestBotEnd(t *testing.T) {
-	g := internal.NewGame(3, 3)
+func TestCountNeighborBotEnd(t *testing.T) {
+	g := NewGame(3, 3)
 	g.SetCell(0, 2, 1)
 	g.SetCell(1, 0, 1)
 	g.SetCell(1, 1, 1)
@@ -133,5 +129,96 @@ func TestBotEnd(t *testing.T) {
 	}
 	if dead != expectedDead {
 		t.Fatalf("Expected %d dead cell but get %d", expectedDead, dead)
+	}
+}
+
+func TestNewCycleUnderPopulation(t *testing.T) {
+	g := NewGame(3, 3)
+	g.SetCell(0, 0, 1)
+	g.SetCell(1, 1, 1)
+	expectedGrid := [][]byte{
+		{0, 0, 0},
+		{0, 0, 0},
+		{0, 0, 0},
+	}
+	gottenGrid := g.NewCycle()
+
+	for i, row := range gottenGrid {
+		for j, cell := range row {
+			if cell != expectedGrid[i][j] {
+				t.Fatalf("Mismatch cell expected %d, gotten %d: x = %d, y = %d",
+					expectedGrid[i][j], cell, i, j)
+			}
+		}
+	}
+}
+
+func TestNewCycleSurvive(t *testing.T) {
+	g := NewGame(3, 3)
+	g.SetCell(0, 0, 1)
+	g.SetCell(1, 1, 1)
+	g.SetCell(2, 2, 1)
+	expectedGrid := [][]byte{
+		{0, 0, 0},
+		{0, 1, 0},
+		{0, 0, 0},
+	}
+	gottenGrid := g.NewCycle()
+
+	for y, row := range gottenGrid {
+		for x, cell := range row {
+			if cell != expectedGrid[y][x] {
+				t.Fatalf("Unexpected cell expected %d, gotten %d: x = %d, y = %d",
+					expectedGrid[y][x], cell, x, y)
+			}
+		}
+	}
+}
+
+func TestNewCycleOverpopulation(t *testing.T) {
+	g := NewGame(3, 3)
+	g.SetCell(0, 0, 1)
+	g.SetCell(0, 1, 1)
+	g.SetCell(0, 2, 1)
+	g.SetCell(1, 1, 1)
+	g.SetCell(1, 2, 1)
+	g.SetCell(2, 0, 1)
+	g.SetCell(2, 2, 1)
+	expectedGrid := [][]byte{
+		{1, 0, 1},
+		{0, 0, 0},
+		{0, 0, 1},
+	}
+	gottenGrid := g.NewCycle()
+
+	for y, row := range gottenGrid {
+		for x, cell := range row {
+			if cell != expectedGrid[y][x] {
+				t.Fatalf("Unexpected cell expected %d, gotten %d: x = %d, y = %d",
+					expectedGrid[y][x], cell, x, y)
+			}
+		}
+	}
+}
+
+func TestNewCycleReproduce(t *testing.T) {
+	g := NewGame(3, 3)
+	g.SetCell(0, 0, 1)
+	g.SetCell(1, 2, 1)
+	g.SetCell(2, 1, 1)
+	expectedGrid := [][]byte{
+		{0, 0, 0},
+		{0, 1, 0},
+		{0, 0, 0},
+	}
+	gottenGrid := g.NewCycle()
+
+	for y, row := range gottenGrid {
+		for x, cell := range row {
+			if cell != expectedGrid[y][x] {
+				t.Fatalf("Unexpected cell expected %d, gotten %d: x = %d, y = %d",
+					expectedGrid[y][x], cell, x, y)
+			}
+		}
 	}
 }
