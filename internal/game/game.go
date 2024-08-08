@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"time"
 
-	"game_of_life/internal/utils"
+	"game_of_life/pkg/utils"
 )
 
 type Life struct {
