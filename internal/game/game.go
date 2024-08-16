@@ -2,10 +2,12 @@ package game
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eiannone/keyboard"
@@ -15,9 +17,9 @@ import (
 
 type Life struct {
 	window [2]int
-	pos    [2]int
+	pos    [2]int32
 	grid   [][]byte
-	mu     sync.Mutex
+	mu     sync.RWMutex
 }
 
 func NewGame(width, height, posX, posY int) *Life {
@@ -31,9 +33,9 @@ func NewGame(width, height, posX, posY int) *Life {
 
 	return &Life{
 		window: [2]int{width, height},
-		pos:    [2]int{posX, posY},
+		pos:    [2]int32{int32(posX), int32(posY)},
 		grid:   grid,
-		mu:     sync.Mutex{},
+		mu:     sync.RWMutex{},
 	}
 }
 
@@ -48,7 +50,6 @@ func (g *Life) WithGrid(grid [][]byte, offsetX, offsetY int) *Life {
 
 func (g *Life) Run(tick time.Duration) {
 	writer := bufio.NewWriter(os.Stdout)
-	ticker := time.NewTicker(tick)
 	fmt.Println("\033[?25l\033[2J")
 	defer fmt.Println("\033[?25h")
 	keyChan, err := keyboard.GetKeys(10)
@@ -56,36 +57,45 @@ func (g *Life) Run(tick time.Duration) {
 		log.Fatal("Unable to create key channel ", err)
 	}
 	defer keyboard.Close()
-	wg := sync.WaitGroup{}
-	wg.Add(1)
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		defer wg.Done()
 		for {
 			select {
 			case key := <-keyChan:
 				if key.Key == keyboard.KeyEsc {
+					cancel()
 					return
 				}
 				switch key.Rune {
 				case 'w':
-					g.pos[1]--
+					atomic.AddInt32(&g.pos[1], -1)
 				case 'a':
-					g.pos[0]--
+					atomic.AddInt32(&g.pos[0], -1)
 				case 's':
-					g.pos[1]++
+					atomic.AddInt32(&g.pos[1], 1)
 				case 'd':
-					g.pos[0]++
+					atomic.AddInt32(&g.pos[0], 1)
 				}
+			default:
+			}
+		}
+	}()
+	go func() {
+		ticker := time.NewTicker(tick)
+		defer ticker.Stop()
+		for range ticker.C {
+			select {
+			case <-ctx.Done():
+				return
 			default:
 			}
 			writer.Write([]byte("\033[H"))
 			writer.Write(g.Serialize())
 			writer.Flush()
 			g.grid = g.NewCycle()
-			<-ticker.C
 		}
 	}()
-	wg.Wait()
+	<-ctx.Done()
 }
 
 func (g *Life) SetCell(row, col, state int) {
@@ -107,7 +117,7 @@ func (g *Life) NewCycle() [][]byte {
 	height := len(g.grid)
 	newGrid := make([][]byte, height)
 
-	mu := sync.Mutex{}
+	mu := sync.RWMutex{}
 	wg := sync.WaitGroup{}
 	wg.Add(height)
 
@@ -133,9 +143,9 @@ func (g *Life) NewCycle() [][]byte {
 				}
 			}
 
-			mu.Lock()
+			mu.RLock()
 			newGrid[i] = row
-			mu.Unlock()
+			mu.RUnlock()
 		}()
 	}
 	wg.Wait()
@@ -158,7 +168,7 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		{col, row + 1},
 		{col + 1, row + 1},
 	}
-	g.mu.Lock()
+	g.mu.RLock()
 	for _, coor := range around {
 		x, y := coor[0], coor[1]
 		if x < 0 || x >= len(g.grid[0]) || y < 0 || y >= len(g.grid) {
@@ -170,11 +180,13 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		}
 		dead++
 	}
-	g.mu.Unlock()
+	g.mu.RUnlock()
 	return alive, dead
 }
 
 func (g *Life) Serialize() []byte {
+	posX := int(atomic.LoadInt32(&g.pos[0]))
+	posY := int(atomic.LoadInt32(&g.pos[1]))
 	out := make([]byte, 0, 10)
 	for range g.window[0] + 2 {
 		out = append(out, '\033', '[', '3', '4', 'm')
@@ -187,7 +199,7 @@ func (g *Life) Serialize() []byte {
 		out = append(out, '\033', '[', '4', '4', 'm')
 		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 		for j := range g.window[0] {
-			x, y := g.pos[0]+j, g.pos[1]+i
+			x, y := posX+j, posY+i
 			if y < 0 || y >= len(g.grid) || x < 0 || x >= len(g.grid[0]) {
 				out = append(out, '\033', '[', '3', '1', 'm')
 				out = append(out, '\033', '[', '4', '1', 'm')
