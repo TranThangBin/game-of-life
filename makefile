@@ -1,3 +1,5 @@
+all: clean build
+
 clean:
 	rm ./build/game_of_life 2>/dev/null || true
 

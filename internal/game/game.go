@@ -5,24 +5,34 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"game_of_life/pkg/utils"
 )
 
 type Life struct {
-	grid [][]byte
+	window [2]int
+	pos    [2]int
+	grid   [][]byte
+	mu     sync.Mutex
 }
 
-func NewGame(width, height int) *Life {
+func NewGame(width, height, posX, posY int) *Life {
 	utils.Assertf(width > 0, "Game width have to be greater than 0: %d", width)
 	utils.Assertf(height > 0, "Game height have to be greater than 0: %d", height)
 
-	grid := make([][]byte, height)
+	grid := make([][]byte, 512)
 	for i := range grid {
-		grid[i] = make([]byte, width)
+		grid[i] = make([]byte, 512)
 	}
-	return &Life{grid: grid}
+
+	return &Life{
+		window: [2]int{width, height},
+		pos:    [2]int{posX, posY},
+		grid:   grid,
+		mu:     sync.Mutex{},
+	}
 }
 
 func (g *Life) WithGrid(grid [][]byte, offsetX, offsetY int) *Life {
@@ -51,6 +61,7 @@ func (g *Life) Run(tick time.Duration) {
 		}
 	}()
 	<-s
+	close(s)
 }
 
 func (g *Life) SetCell(row, col, state int) {
@@ -71,25 +82,40 @@ func (g *Life) NewCycle() [][]byte {
 	width := len(g.grid[0])
 	height := len(g.grid)
 	newGrid := make([][]byte, height)
+
+	mu := sync.Mutex{}
+	wg := sync.WaitGroup{}
+	wg.Add(height)
+
 	for i := range g.grid {
-		newGrid[i] = make([]byte, width)
-		for j, cell := range g.grid[i] {
-			alive, _ := g.CountNeighbor(i, j)
+		go func() {
+			defer wg.Done()
+			row := make([]byte, width)
 
-			underPopulation := alive < 2
-			overPopulation := alive > 3
+			for j, cell := range g.grid[i] {
+				alive, _ := g.CountNeighbor(i, j)
 
-			isAlive := cell != 0
-			survival := isAlive && (alive == 2 || alive == 3)
-			reproduce := !isAlive && alive == 3
+				underPopulation := alive < 2
+				overPopulation := alive > 3
 
-			if underPopulation || overPopulation {
-				newGrid[i][j] = 0
-			} else if survival || reproduce {
-				newGrid[i][j] = 1
+				isAlive := cell != 0
+				survival := isAlive && (alive == 2 || alive == 3)
+				reproduce := !isAlive && alive == 3
+
+				if underPopulation || overPopulation {
+					row[j] = 0
+				} else if survival || reproduce {
+					row[j] = 1
+				}
 			}
-		}
+
+			mu.Lock()
+			newGrid[i] = row
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
+
 	return newGrid
 }
 
@@ -108,6 +134,7 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		{col, row + 1},
 		{col + 1, row + 1},
 	}
+	g.mu.Lock()
 	for _, coor := range around {
 		x, y := coor[0], coor[1]
 		if x < 0 || x >= len(g.grid[0]) || y < 0 || y >= len(g.grid) {
@@ -119,14 +146,28 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		}
 		dead++
 	}
+	g.mu.Unlock()
 	return alive, dead
 }
 
 func (g *Life) Serialize() []byte {
 	out := make([]byte, 0, 10)
-	for _, row := range g.grid {
-		for _, cell := range row {
-			if cell != 0 {
+	for range g.window[0] + 2 {
+		out = append(out, '\033', '[', '3', '4', 'm')
+		out = append(out, '\033', '[', '4', '4', 'm')
+		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+	}
+	out = append(out, '\n')
+	for i := range g.window[1] {
+		out = append(out, '\033', '[', '3', '4', 'm')
+		out = append(out, '\033', '[', '4', '4', 'm')
+		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+		for j := range g.window[0] {
+			x, y := g.pos[0]+j, g.pos[1]+i
+			if y < 0 || y >= len(g.grid) || x < 0 || x >= len(g.grid[0]) {
+				out = append(out, '\033', '[', '3', '1', 'm')
+				out = append(out, '\033', '[', '4', '1', 'm')
+			} else if g.grid[y][x] != 0 {
 				out = append(out, '\033', '[', '3', '0', 'm')
 				out = append(out, '\033', '[', '4', '0', 'm')
 			} else {
@@ -135,7 +176,15 @@ func (g *Life) Serialize() []byte {
 			}
 			out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 		}
+		out = append(out, '\033', '[', '3', '4', 'm')
+		out = append(out, '\033', '[', '4', '4', 'm')
+		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 		out = append(out, '\n')
+	}
+	for range g.window[0] + 2 {
+		out = append(out, '\033', '[', '3', '4', 'm')
+		out = append(out, '\033', '[', '4', '4', 'm')
+		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 	}
 	return out
 }
