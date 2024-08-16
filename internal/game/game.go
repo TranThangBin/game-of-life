@@ -3,10 +3,12 @@ package game
 import (
 	"bufio"
 	"fmt"
+	"log"
 	"os"
-	"os/signal"
 	"sync"
 	"time"
+
+	"github.com/eiannone/keyboard"
 
 	"game_of_life/pkg/utils"
 )
@@ -49,10 +51,33 @@ func (g *Life) Run(tick time.Duration) {
 	ticker := time.NewTicker(tick)
 	fmt.Println("\033[?25l\033[2J")
 	defer fmt.Println("\033[?25h")
-	s := make(chan os.Signal, 1)
-	signal.Notify(s, os.Interrupt)
+	keyChan, err := keyboard.GetKeys(10)
+	if err != nil {
+		log.Fatal("Unable to create key channel ", err)
+	}
+	defer keyboard.Close()
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		for {
+			select {
+			case key := <-keyChan:
+				if key.Key == keyboard.KeyEsc {
+					return
+				}
+				switch key.Rune {
+				case 'w':
+					g.pos[1]--
+				case 'a':
+					g.pos[0]--
+				case 's':
+					g.pos[1]++
+				case 'd':
+					g.pos[0]++
+				}
+			default:
+			}
 			writer.Write([]byte("\033[H"))
 			writer.Write(g.Serialize())
 			writer.Flush()
@@ -60,8 +85,7 @@ func (g *Life) Run(tick time.Duration) {
 			<-ticker.C
 		}
 	}()
-	<-s
-	close(s)
+	wg.Wait()
 }
 
 func (g *Life) SetCell(row, col, state int) {
