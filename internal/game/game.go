@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/eiannone/keyboard"
@@ -16,26 +15,28 @@ import (
 )
 
 type Life struct {
-	window [2]int
-	pos    [2]int32
+	window Window
 	grid   [][]byte
-	mu     sync.RWMutex
+	pos    Position
+	gridMu sync.RWMutex
 }
 
 func NewGame(width, height, posX, posY int) *Life {
-	utils.Assertf(width > 0, "Game width have to be greater than 0: %d", width)
-	utils.Assertf(height > 0, "Game height have to be greater than 0: %d", height)
+	const GRIDSIZE = 128
 
-	grid := make([][]byte, 512)
+	window := NewWindow(int32(width), int32(height))
+	pos := NewPosition(int32(posX), int32(posY))
+
+	grid := make([][]byte, GRIDSIZE)
 	for i := range grid {
-		grid[i] = make([]byte, 512)
+		grid[i] = make([]byte, GRIDSIZE)
 	}
 
 	return &Life{
-		window: [2]int{width, height},
-		pos:    [2]int32{int32(posX), int32(posY)},
+		window: window,
+		pos:    pos,
 		grid:   grid,
-		mu:     sync.RWMutex{},
+		gridMu: sync.RWMutex{},
 	}
 }
 
@@ -67,14 +68,22 @@ func (g *Life) Run(tick time.Duration) {
 					return
 				}
 				switch key.Rune {
+				case 'k':
+					fallthrough
 				case 'w':
-					atomic.AddInt32(&g.pos[1], -1)
+					g.pos.Up()
+				case 'h':
+					fallthrough
 				case 'a':
-					atomic.AddInt32(&g.pos[0], -1)
+					g.pos.Left()
+				case 'j':
+					fallthrough
 				case 's':
-					atomic.AddInt32(&g.pos[1], 1)
+					g.pos.Down()
+				case 'l':
+					fallthrough
 				case 'd':
-					atomic.AddInt32(&g.pos[0], 1)
+					g.pos.Right()
 				}
 			default:
 			}
@@ -113,42 +122,54 @@ func (g *Life) GetCell(row, col int) byte {
 }
 
 func (g *Life) NewCycle() [][]byte {
-	width := len(g.grid[0])
-	height := len(g.grid)
-	newGrid := make([][]byte, height)
+	const CHUNKSIZE = 56
 
-	mu := sync.RWMutex{}
-	wg := sync.WaitGroup{}
-	wg.Add(height)
+	gridSize := len(g.grid)
+	chunkCount := gridSize / CHUNKSIZE
 
-	for i := range g.grid {
+	newGrid := make([][]byte, gridSize)
+
+	rowWg := sync.WaitGroup{}
+	rowWg.Add(gridSize)
+
+	for rowIndex, row := range g.grid {
 		go func() {
-			defer wg.Done()
-			row := make([]byte, width)
-
-			for j, cell := range g.grid[i] {
-				alive, _ := g.CountNeighbor(i, j)
-
-				underPopulation := alive < 2
-				overPopulation := alive > 3
-
-				isAlive := cell != 0
-				survival := isAlive && (alive == 2 || alive == 3)
-				reproduce := !isAlive && alive == 3
-
-				if underPopulation || overPopulation {
-					row[j] = 0
-				} else if survival || reproduce {
-					row[j] = 1
-				}
+			defer rowWg.Done()
+			chunks := make([][]byte, chunkCount)
+			for chunkIndex := range chunkCount {
+				chunks[chunkIndex] = row[chunkIndex*CHUNKSIZE : chunkIndex*CHUNKSIZE+CHUNKSIZE]
 			}
+			newRow := make([]byte, gridSize)
+			chunkWg := sync.WaitGroup{}
+			chunkWg.Add(chunkCount)
+			for chunkIndex, chunk := range chunks {
+				go func() {
+					defer chunkWg.Done()
+					for chunkOffset, cell := range chunk {
+						colIndex := chunkIndex*CHUNKSIZE + chunkOffset
+						alive, _ := g.CountNeighbor(rowIndex, colIndex)
 
-			mu.RLock()
-			newGrid[i] = row
-			mu.RUnlock()
+						underPopulation := alive < 2
+						overPopulation := alive > 3
+
+						isAlive := cell != 0
+						survival := isAlive && (alive == 2 || alive == 3)
+						reproduce := !isAlive && alive == 3
+
+						if underPopulation || overPopulation {
+							newRow[colIndex] = 0
+						} else if survival || reproduce {
+							newRow[colIndex] = 1
+						}
+
+					}
+				}()
+			}
+			chunkWg.Wait()
+			newGrid[rowIndex] = newRow
 		}()
 	}
-	wg.Wait()
+	rowWg.Wait()
 
 	return newGrid
 }
@@ -168,7 +189,7 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		{col, row + 1},
 		{col + 1, row + 1},
 	}
-	g.mu.RLock()
+	g.gridMu.RLock()
 	for _, coor := range around {
 		x, y := coor[0], coor[1]
 		if x < 0 || x >= len(g.grid[0]) || y < 0 || y >= len(g.grid) {
@@ -180,26 +201,28 @@ func (g *Life) CountNeighbor(row, col int) (alive int, dead int) {
 		}
 		dead++
 	}
-	g.mu.RUnlock()
+	g.gridMu.RUnlock()
 	return alive, dead
 }
 
 func (g *Life) Serialize() []byte {
-	posX := int(atomic.LoadInt32(&g.pos[0]))
-	posY := int(atomic.LoadInt32(&g.pos[1]))
+	posX := g.pos.GetPosX()
+	posY := g.pos.GetPosY()
+	width := g.window.GetWidth()
+	height := g.window.GetHeight()
 	out := make([]byte, 0, 10)
-	for range g.window[0] + 2 {
+	for range width + 2 {
 		out = append(out, '\033', '[', '3', '4', 'm')
 		out = append(out, '\033', '[', '4', '4', 'm')
 		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 	}
 	out = append(out, '\n')
-	for i := range g.window[1] {
+	for i := range height {
 		out = append(out, '\033', '[', '3', '4', 'm')
 		out = append(out, '\033', '[', '4', '4', 'm')
 		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
-		for j := range g.window[0] {
-			x, y := posX+j, posY+i
+		for j := range width {
+			x, y := int(posX+j), int(posY+i)
 			if y < 0 || y >= len(g.grid) || x < 0 || x >= len(g.grid[0]) {
 				out = append(out, '\033', '[', '3', '1', 'm')
 				out = append(out, '\033', '[', '4', '1', 'm')
@@ -217,7 +240,7 @@ func (g *Life) Serialize() []byte {
 		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
 		out = append(out, '\n')
 	}
-	for range g.window[0] + 2 {
+	for range width + 2 {
 		out = append(out, '\033', '[', '3', '4', 'm')
 		out = append(out, '\033', '[', '4', '4', 'm')
 		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
