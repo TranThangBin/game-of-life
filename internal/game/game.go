@@ -44,7 +44,7 @@ func (g *Life) Run(tick time.Duration) {
 	writer := bufio.NewWriter(os.Stdout)
 	fmt.Println("\033[?25l\033[2J")
 	defer fmt.Println("\033[?25h")
-	keyChan, err := keyboard.GetKeys(10)
+	err := keyboard.Open()
 	if err != nil {
 		log.Fatal("Unable to create key channel ", err)
 	}
@@ -52,31 +52,31 @@ func (g *Life) Run(tick time.Duration) {
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		for {
-			select {
-			case key := <-keyChan:
-				if key.Key == keyboard.KeyEsc {
-					cancel()
-					return
-				}
-				switch key.Rune {
-				case 'k':
-					fallthrough
-				case 'w':
-					g.pos.Up()
-				case 'h':
-					fallthrough
-				case 'a':
-					g.pos.Left()
-				case 'j':
-					fallthrough
-				case 's':
-					g.pos.Down()
-				case 'l':
-					fallthrough
-				case 'd':
-					g.pos.Right()
-				}
-			default:
+			ch, key, err := keyboard.GetSingleKey()
+			if err != nil {
+				return
+			}
+			if key == keyboard.KeyEsc {
+				cancel()
+				return
+			}
+			switch ch {
+			case 'k':
+				fallthrough
+			case 'w':
+				g.pos.Up()
+			case 'h':
+				fallthrough
+			case 'a':
+				g.pos.Left()
+			case 'j':
+				fallthrough
+			case 's':
+				g.pos.Down()
+			case 'l':
+				fallthrough
+			case 'd':
+				g.pos.Right()
 			}
 		}
 	}()
@@ -96,6 +96,7 @@ func (g *Life) Run(tick time.Duration) {
 		}
 	}()
 	<-ctx.Done()
+	fmt.Println("\nSimulation over!")
 }
 
 func (g *Life) Serialize() []byte {
@@ -103,40 +104,49 @@ func (g *Life) Serialize() []byte {
 	posY := g.pos.GetPosY()
 	width := g.window.GetWidth()
 	height := g.window.GetHeight()
-	out := make([]byte, 0, 10)
+	out := make([]byte, 0)
+	square := []byte{226, 172, 155}
+	blueColorBuilder :=
+		NewColorBuilderWithBytes(square).
+			WithBgColor(BLUE).
+			WithFgColor(BLUE)
+	redColorBuilder :=
+		NewColorBuilderWithBytes(square).
+			WithBgColor(RED).
+			WithFgColor(RED)
+	whiteColorBuilder :=
+		NewColorBuilderWithBytes(square).
+			WithBgColor(WHITE).
+			WithFgColor(WHITE)
+	blackColorBuilder :=
+		NewColorBuilderWithBytes(square).
+			WithBgColor(BLACK).
+			WithFgColor(BLACK)
+
 	for range width + 2 {
-		out = append(out, '\033', '[', '3', '4', 'm')
-		out = append(out, '\033', '[', '4', '4', 'm')
-		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+		out = append(out, blueColorBuilder.Build()...)
 	}
 	out = append(out, '\n')
 	for i := range height {
-		out = append(out, '\033', '[', '3', '4', 'm')
-		out = append(out, '\033', '[', '4', '4', 'm')
-		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+		out = append(out, blueColorBuilder.Build()...)
 		for j := range width {
 			x, y := int(posX+j), int(posY+i)
 			if y < 0 || y >= g.grid.Size() || x < 0 || x >= g.grid.Size() {
-				out = append(out, '\033', '[', '3', '1', 'm')
-				out = append(out, '\033', '[', '4', '1', 'm')
-			} else if g.grid.GetCell(y, x) != 0 {
-				out = append(out, '\033', '[', '3', '0', 'm')
-				out = append(out, '\033', '[', '4', '0', 'm')
-			} else {
-				out = append(out, '\033', '[', '3', '7', 'm')
-				out = append(out, '\033', '[', '4', '7', 'm')
+				out = append(out, redColorBuilder.Build()...)
+				continue
 			}
-			out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+			if g.grid.GetCell(y, x) != 0 {
+				out = append(out, blackColorBuilder.Build()...)
+				continue
+			}
+			out = append(out, whiteColorBuilder.Build()...)
+			continue
 		}
-		out = append(out, '\033', '[', '3', '4', 'm')
-		out = append(out, '\033', '[', '4', '4', 'm')
-		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+		out = append(out, blueColorBuilder.Build()...)
 		out = append(out, '\n')
 	}
 	for range width + 2 {
-		out = append(out, '\033', '[', '3', '4', 'm')
-		out = append(out, '\033', '[', '4', '4', 'm')
-		out = append(out, 226, 172, 155, '\033', '[', '0', 'm')
+		out = append(out, blueColorBuilder.Build()...)
 	}
 	return out
 }

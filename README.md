@@ -2,6 +2,6 @@
 
 ## TODO
 
-- movable viewport
-- concurrency
+- ~~movable viewport~~
+- ~~concurrency~~
 - maybe support RLE
