@@ -45,15 +45,9 @@ type ColorBuilder struct {
 	bgColor     []byte
 }
 
-func NewColorBuilderWithString(textContent string) ColorBuilder {
+func NewColorBuilder(content []byte) ColorBuilder {
 	return ColorBuilder{
-		textContent: []byte(textContent),
-	}
-}
-
-func NewColorBuilderWithBytes(textContent []byte) ColorBuilder {
-	return ColorBuilder{
-		textContent: []byte(textContent),
+		textContent: content,
 	}
 }
 

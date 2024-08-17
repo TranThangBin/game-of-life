@@ -106,20 +106,21 @@ func (g *Life) Serialize() []byte {
 	height := g.window.GetHeight()
 	out := make([]byte, 0)
 	square := []byte{226, 172, 155}
+	colorBuilder := NewColorBuilder(square)
 	blueColorBuilder :=
-		NewColorBuilderWithBytes(square).
+		colorBuilder.
 			WithBgColor(BLUE).
 			WithFgColor(BLUE)
 	redColorBuilder :=
-		NewColorBuilderWithBytes(square).
+		colorBuilder.
 			WithBgColor(RED).
 			WithFgColor(RED)
 	whiteColorBuilder :=
-		NewColorBuilderWithBytes(square).
+		colorBuilder.
 			WithBgColor(WHITE).
 			WithFgColor(WHITE)
 	blackColorBuilder :=
-		NewColorBuilderWithBytes(square).
+		colorBuilder.
 			WithBgColor(BLACK).
 			WithFgColor(BLACK)
 
